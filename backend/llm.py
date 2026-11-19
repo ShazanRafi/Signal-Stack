@@ -8,9 +8,8 @@ from google import genai
 from google.genai import errors, types
 from pydantic import BaseModel
 
-from app.config import settings
-from app.db.models import LLMCache, LLMCall
-from app.db.session import SessionLocal
+from backend import config
+from backend.db import connect
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -22,7 +21,7 @@ class LLMError(Exception):
 
 
 class LLMQuotaError(LLMError):
-    """Rate/quota exhausted even after retries (check your daily free-tier quota)."""
+    """Rate/quota still exhausted after retries (check your daily free-tier quota)."""
 
 
 class _RateLimiter:
@@ -42,24 +41,23 @@ class _RateLimiter:
             time.sleep(delay)
 
 
-_limiter = _RateLimiter(settings.llm_max_rpm)
+_limiter = _RateLimiter(config.LLM_MAX_RPM)
 _client = None
 
 
 def _get_client():
     global _client
     if _client is None:
-        if not settings.gemini_api_key:
-            raise LLMError("GEMINI_API_KEY is not set. Add it to your .env file.")
-        _client = genai.Client(api_key=settings.gemini_api_key)
+        if not config.GEMINI_API_KEY:
+            raise LLMError("No API key found. Set GEMINI_API_KEY (or GOOGLE_API_KEY) in .env")
+        _client = genai.Client(api_key=config.GEMINI_API_KEY)
     return _client
 
 
 def _cache_key(prompt: str, schema: Type[BaseModel], system: str | None, temperature: float) -> str:
-    # Schema is part of the key: changing the schema must not reuse old answers.
     payload = json.dumps(
         {
-            "model": settings.gemini_model,
+            "model": config.GEMINI_MODEL,
             "system": system or "",
             "prompt": prompt,
             "schema": schema.model_json_schema(),
@@ -71,22 +69,27 @@ def _cache_key(prompt: str, schema: Type[BaseModel], system: str | None, tempera
 
 
 def _cache_get(key: str) -> str | None:
-    with SessionLocal() as s:
-        row = s.get(LLMCache, key)
-        return row.response_json if row else None
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT response_json FROM llm_cache WHERE key = ?", (key,)
+        ).fetchone()
+    return row["response_json"] if row else None
 
 
 def _cache_set(key: str, value: str) -> None:
-    with SessionLocal() as s:
-        s.merge(LLMCache(key=key, model=settings.gemini_model, response_json=value))
-        s.commit()
+    with connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO llm_cache (key, model, response_json) VALUES (?, ?, ?)",
+            (key, config.GEMINI_MODEL, value),
+        )
 
 
 def _log(purpose: str, cached: bool, ok: bool, error: str = "") -> None:
-    with SessionLocal() as s:
-        s.add(LLMCall(model=settings.gemini_model, purpose=purpose,
-                      cached=cached, ok=ok, error=error[:1000]))
-        s.commit()
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO llm_calls (model, purpose, cached, ok, error) VALUES (?, ?, ?, ?, ?)",
+            (config.GEMINI_MODEL, purpose, int(cached), int(ok), error[:1000]),
+        )
 
 
 def generate_structured(
@@ -113,16 +116,16 @@ def generate_structured(
                 _log(purpose, cached=True, ok=True)
                 return obj
             except ValueError:
-                pass  # incompatible old cache entry: regenerate
+                pass  
 
     last_error = "unknown error"
     last_code: int | None = None
 
-    for attempt in range(settings.llm_max_retries + 1):
+    for attempt in range(config.LLM_MAX_RETRIES + 1):
         _limiter.wait()
         try:
             resp = _get_client().models.generate_content(
-                model=settings.gemini_model,
+                model=config.GEMINI_MODEL,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system,
@@ -134,7 +137,7 @@ def generate_structured(
             text = resp.text
             if not text:
                 raise ValueError("empty response (possibly blocked by safety filters)")
-            obj = schema.model_validate_json(text)  # ValidationError is a ValueError
+            obj = schema.model_validate_json(text)  
         except errors.APIError as e:
             last_error = f"APIError {e.code}: {e.message}"
             last_code = e.code
@@ -156,4 +159,4 @@ def generate_structured(
 
     if last_code == 429:
         raise LLMQuotaError(f"Rate/quota limit still hit after retries. Last: {last_error}")
-    raise LLMError(f"Failed after {settings.llm_max_retries + 1} attempts. Last: {last_error}")
+    raise LLMError(f"Failed after {config.LLM_MAX_RETRIES + 1} attempts. Last: {last_error}")

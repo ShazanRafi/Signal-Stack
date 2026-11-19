@@ -1,12 +1,9 @@
 import pytest
 from google.genai import errors
 from pydantic import BaseModel
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from app.db import models  # noqa: F401
-from app.db.session import Base
-from app.llm import client as llm
+from backend import db
+from backend import llm
 
 
 class Pet(BaseModel):
@@ -39,9 +36,8 @@ def api_error(code):
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
-    engine = create_engine(f"sqlite:///{tmp_path/'t.db'}")
-    Base.metadata.create_all(engine)
-    monkeypatch.setattr(llm, "SessionLocal", sessionmaker(bind=engine, expire_on_commit=False))
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test.db")
+    db.init_db()
     monkeypatch.setattr(llm.time, "sleep", lambda s: None)
 
     class NoLimit:
@@ -63,7 +59,7 @@ def test_valid_response_then_cache_hit(setup):
     a = llm.generate_structured("pet?", Pet)
     b = llm.generate_structured("pet?", Pet)
     assert a == b == Pet(name="Rex", age=3)
-    assert fake.calls == 1 
+    assert fake.calls == 1  # second call came from the cache
 
 
 def test_invalid_json_is_retried(setup):
@@ -74,7 +70,7 @@ def test_invalid_json_is_retried(setup):
 
 
 def test_failed_attempts_are_not_cached(setup):
-    setup(["bad"] * 5)
+    setup(["bad"] * (llm.config.LLM_MAX_RETRIES + 1))
     with pytest.raises(llm.LLMError):
         llm.generate_structured("pet?", Pet)
     fake = setup(['{"name": "Rex", "age": 3}'])
@@ -83,10 +79,10 @@ def test_failed_attempts_are_not_cached(setup):
 
 
 def test_quota_error_after_retries(setup):
-    fake = setup([api_error(429)] * (llm.settings.llm_max_retries + 1))
+    fake = setup([api_error(429)] * (llm.config.LLM_MAX_RETRIES + 1))
     with pytest.raises(llm.LLMQuotaError):
         llm.generate_structured("pet?", Pet)
-    assert fake.calls == llm.settings.llm_max_retries + 1
+    assert fake.calls == llm.config.LLM_MAX_RETRIES + 1
 
 
 def test_non_retryable_error_fails_fast(setup):
