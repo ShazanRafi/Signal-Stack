@@ -88,6 +88,43 @@ CREATE TABLE IF NOT EXISTS profile_entities (
     turn_id INTEGER NOT NULL,
     UNIQUE (company_id, name, kind)
 );
+
+CREATE TABLE IF NOT EXISTS competitors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL COLLATE NOCASE,
+    url TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'competitor',      -- competitor | substitute
+    why_relevant TEXT NOT NULL DEFAULT '',
+    named_by TEXT NOT NULL DEFAULT 'llm',         -- llm | founder
+    site_status TEXT NOT NULL DEFAULT 'none',     -- ok | none | blocked | unreachable | mismatch
+    site_note TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',        -- active | removed
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (company_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    category TEXT NOT NULL,        -- customers | competitors | market | internal
+    type TEXT NOT NULL,            -- rss | news_query | hn_query | web_page | upload
+    target TEXT NOT NULL,          -- the query text, or the URL, or the upload kind
+    url TEXT NOT NULL DEFAULT '',  -- what the crawler actually fetches
+    reason TEXT NOT NULL,
+    tier TEXT NOT NULL DEFAULT 'unrated',   -- primary | official | news | community | internal | unrated
+    competitor_id INTEGER REFERENCES competitors(id) ON DELETE SET NULL,
+    origin TEXT NOT NULL DEFAULT 'llm',     -- llm | code | user
+    status TEXT NOT NULL DEFAULT 'proposed',  -- proposed | approved | rejected | removed
+    validation TEXT NOT NULL DEFAULT 'unchecked',  -- valid | warning | invalid | unchecked
+    validation_note TEXT NOT NULL DEFAULT '',
+    items_found INTEGER NOT NULL DEFAULT 0,
+    last_item_at TEXT NOT NULL DEFAULT '',
+    checked_at TEXT NOT NULL DEFAULT '',
+    dedupe_key TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (company_id, dedupe_key)
+);
 """
 
 
