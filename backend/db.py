@@ -125,6 +125,70 @@ CREATE TABLE IF NOT EXISTS sources (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (company_id, dedupe_key)
 );
+
+CREATE TABLE IF NOT EXISTS crawl_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    run_type TEXT NOT NULL DEFAULT 'manual',     -- manual | weekly | test
+    status TEXT NOT NULL DEFAULT 'running',      -- running | ok | partial | failed
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL DEFAULT '',
+    sources_checked INTEGER NOT NULL DEFAULT 0,
+    new_records INTEGER NOT NULL DEFAULT 0,
+    duplicates INTEGER NOT NULL DEFAULT 0,
+    errors INTEGER NOT NULL DEFAULT 0,
+    error TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS crawl_source_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES crawl_runs(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    items_seen INTEGER NOT NULL DEFAULT 0,
+    items_new INTEGER NOT NULL DEFAULT 0,
+    items_duplicate INTEGER NOT NULL DEFAULT 0,
+    items_old INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL,   -- first source to see it
+    competitor_id INTEGER REFERENCES competitors(id) ON DELETE SET NULL,
+    crawl_run_id INTEGER REFERENCES crawl_runs(id) ON DELETE SET NULL,
+    category TEXT NOT NULL,
+    kind TEXT NOT NULL,            -- article | story | comment | page_change
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    publisher TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL DEFAULT '',
+    url_key TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    published_at TEXT NOT NULL DEFAULT '',     -- '' = the source gave no usable date
+    discovered_at TEXT NOT NULL,
+    UNIQUE (company_id, url_key),
+    UNIQUE (company_id, content_hash)
+);
+
+CREATE TABLE IF NOT EXISTS record_sightings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id INTEGER NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    seen_at TEXT NOT NULL,
+    UNIQUE (record_id, source_id)
+);
+
+CREATE TABLE IF NOT EXISTS page_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    crawl_run_id INTEGER REFERENCES crawl_runs(id) ON DELETE SET NULL,
+    content_hash TEXT NOT NULL,
+    text TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+);
 """
 
 
