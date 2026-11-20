@@ -218,6 +218,88 @@ CREATE TABLE IF NOT EXISTS signals (
     explanation TEXT NOT NULL DEFAULT '',
     analyzed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS briefs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    run_type TEXT NOT NULL DEFAULT 'manual',     -- manual | weekly | test
+    status TEXT NOT NULL,                        -- complete | data_only
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    markdown TEXT NOT NULL,
+    narrative_json TEXT NOT NULL DEFAULT '{}',
+    quality_notes TEXT NOT NULL DEFAULT '[]',
+    n_signals INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS brief_signals (
+    brief_id INTEGER NOT NULL REFERENCES briefs(id) ON DELETE CASCADE,
+    signal_id INTEGER NOT NULL REFERENCES signals(id) ON DELETE CASCADE,
+    ref INTEGER NOT NULL,
+    PRIMARY KEY (brief_id, signal_id)
+);
+
+CREATE TABLE IF NOT EXISTS brief_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    brief_id INTEGER NOT NULL REFERENCES briefs(id) ON DELETE CASCADE,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    owner TEXT NOT NULL,
+    priority INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'todo',         -- todo | doing | done
+    signal_ids TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS company_settings (
+    company_id INTEGER PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+    timezone TEXT NOT NULL DEFAULT 'UTC',
+    brief_enabled INTEGER NOT NULL DEFAULT 1,
+    brief_weekday INTEGER NOT NULL DEFAULT 0,         -- 0 = Monday
+    brief_time TEXT NOT NULL DEFAULT '08:00',
+    brief_days INTEGER NOT NULL DEFAULT 7,
+    monitor_enabled INTEGER NOT NULL DEFAULT 1,
+    crawl_every_hours INTEGER NOT NULL DEFAULT 12,
+    audit_enabled INTEGER NOT NULL DEFAULT 1,
+    audit_day INTEGER NOT NULL DEFAULT 1,             -- day of month, 1-28
+    audit_time TEXT NOT NULL DEFAULT '06:00',
+    effective_from TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS job_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    job_type TEXT NOT NULL,                  -- weekly_brief | monitor | monthly_audit
+    triggered_by TEXT NOT NULL,              -- scheduled | manual
+    scheduled_for TEXT NOT NULL DEFAULT '',
+    attempt INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'running',  -- running | ok | partial | failed | missed
+    started_at TEXT NOT NULL,
+    finished_at TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '{}',
+    error TEXT NOT NULL DEFAULT ''
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_running_job
+    ON job_runs (company_id, job_type) WHERE status = 'running';
+
+CREATE TABLE IF NOT EXISTS worker_heartbeat (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_seen TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS audit_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    markdown TEXT NOT NULL,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
