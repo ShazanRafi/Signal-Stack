@@ -70,6 +70,8 @@ class AnalysisSummary:
 def prefilter(r: dict, kw: set[str]) -> tuple[bool, int, str]:
     if r["kind"] == "page_change":
         return True, 99, ""
+    if r["category"] == "internal":
+        return True, 90, ""
     hay = f"{r['title']}\n{r['text']}"
     if r["competitor_name"] and normalize(r["competitor_name"]) in normalize(hay):
         return True, 50, ""
@@ -191,7 +193,6 @@ def analyze_company(company_id: int, llm_fn=None, max_records: int = MAX_PER_RUN
 
 
 def reset_signals(company_id: int) -> int:
-    """Delete all signals so records are re-analysed (the LLM cache keeps repeat runs cheap)."""
     with connect() as conn:
         return conn.execute("DELETE FROM signals WHERE company_id = ?", (company_id,)).rowcount
 

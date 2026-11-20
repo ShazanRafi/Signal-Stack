@@ -300,6 +300,45 @@ CREATE TABLE IF NOT EXISTS audit_reports (
     summary_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS uploads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    file_type TEXT NOT NULL,
+    stored_path TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT '',
+    text_columns TEXT NOT NULL DEFAULT '[]',
+    rows_total INTEGER NOT NULL DEFAULT 0,
+    rows_with_text INTEGER NOT NULL DEFAULT 0,
+    rows_analyzed INTEGER NOT NULL DEFAULT 0,
+    sampling_note TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'uploaded',      -- uploaded | analyzed
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    analyzed_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS upload_rows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+    ref TEXT NOT NULL,
+    text TEXT NOT NULL,
+    UNIQUE (upload_id, ref)
+);
+
+CREATE TABLE IF NOT EXISTS upload_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id INTEGER NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+    category TEXT NOT NULL,
+    theme TEXT NOT NULL,
+    row_count INTEGER NOT NULL,
+    quotes TEXT NOT NULL DEFAULT '[]',
+    record_id INTEGER REFERENCES records(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

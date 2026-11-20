@@ -323,6 +323,14 @@ def _section(num: int, title: str, cat: str, ctx: dict, refs: Refs) -> list[str]
     out.append("\n".join(_card(g, refs) for g in cards))
     return out
 
+def _internal_note(ctx: dict) -> str:
+    ups = ctx.get("uploads") or []
+    if not ups:
+        return ""
+    parts = [f"{u['filename']} ({u['rows_analyzed']} rows analysed"
+             + (f"; {u['note']}" if u["note"] else "") + ")" for u in ups]
+    return ("_Internal data analysed: " + "; ".join(parts) + ". Counts are AI-tagged rows "
+            "within the analysed sample, not the full file._")
 
 def _render(ctx: dict) -> str:
     refs = Refs()
@@ -388,8 +396,13 @@ def _render(ctx: dict) -> str:
     out += _section(3, "Competitor Intelligence", "competitors", ctx, refs)
     out += _section(4, "Market Intelligence", "market", ctx, refs)
 
+    internal_note = _internal_note(ctx)
     if ctx["sections"]["internal"]:
-        out += _section(5, "Internal Business Intelligence", "internal", ctx, refs)
+        sec = _section(5, "Internal Business Intelligence", "internal", ctx, refs)
+        out += [sec[0]] + ([internal_note] if internal_note else []) + sec[1:]
+    elif internal_note:
+        out += ["## 5. Internal Business Intelligence", internal_note,
+                "No internal finding met the relevance threshold this period."]
     else:
         out += ["## 5. Internal Business Intelligence",
                 "No internal data was analysed this period. Upload CRM exports, customer "
@@ -521,6 +534,7 @@ def generate_brief(company_id: int, days: int = 7, llm_fn=None, run_type: str = 
         profile = profile_text(conn, company_id)
         all_sigs = _load_signals(conn, company_id, since.isoformat())
         cov = _coverage(conn, company_id, since.isoformat())
+        uploads = [dict(r) for r in conn.execute("SELECT filename, kind, note, rows_analyzed FROM uploads WHERE company_id = ? " "AND status = 'analyzed' ORDER BY id", (company_id,))]
 
     by_id = {g["id"]: g for g in all_sigs}
     main, watch, exec_items, sections, risks, pool_main = _pools(all_sigs)
@@ -559,9 +573,9 @@ def generate_brief(company_id: int, days: int = 7, llm_fn=None, run_type: str = 
            "coverage": cov, "state": state, "by_id": by_id, "main": main,
            "exec": exec_items, "sections": sections, "risks": risks,
            "narrative": narrative, "themes": themes, "quotes": quotes_all[:MAX_SECTION],
-           "n_quotes": len(quotes_all), "notes": notes, "action_ids": []}
+            "n_quotes": len(quotes_all), "notes": notes, "action_ids": [], "uploads": uploads}
 
-    with connect() as conn:                       # one transaction: all or nothing
+    with connect() as conn:                       
         brief_id = conn.execute(
             "INSERT INTO briefs (company_id, run_type, status, period_start, period_end, "
             "markdown, narrative_json, quality_notes) VALUES (?, ?, ?, ?, ?, '', ?, ?)",
