@@ -16,6 +16,7 @@ from backend.research import get_profile, research_company
 from backend.stack import (add_source, approve_all_valid, build_stack, get_stack,
                            remove_competitor, set_source_status)
 from backend.uploads import KINDS, ingest_bytes, list_uploads
+from backend.reassess import apply_reassessment, get_change, list_changes, reassess_context
 
 st.set_page_config(page_title="Signal Stack", layout="wide")
 init_db()
@@ -410,6 +411,23 @@ def page_settings(cid):
     rep = get_latest_audit(cid)
     st.markdown(rep["markdown"] if rep else "_No audit has run yet._")
 
+def page_context(cid):
+    st.header("Change business context")
+    st.caption("Edit a profile topic; the system reviews the Signal Stack against the new "
+               "context. Nothing is removed until you apply the report.")
+    topic = st.selectbox("Topic", list(TOPICS), format_func=lambda t: t.replace("_", " ").title())
+    cur = {e["topic"]: e["content"] for e in get_state(cid)["entries"]}.get(topic, "")
+    new = st.text_area("New note", cur, key=f"ctx_{cid}_{topic}")
+    if st.button("Reassess stack (3 LLM calls, a few minutes)"):
+        ok, r = run("Reviewing sources and discovering new ones...", reassess_context, cid, {topic: new})
+        if ok:
+            st.success(f"Change {r['change_id']} is ready.")
+    for c in list_changes(cid):
+        with st.expander(f"Change {c['id']} · {c['status']} · {c['created_at'][:16]}"):
+            ch = get_change(c["id"])
+            st.markdown(ch["markdown"] or ch["error"])
+            if ch["status"] == "ready" and st.button("Apply this report", key=f"apply{c['id']}"):
+                st.success(str(apply_reassessment(c["id"])))
 
 PAGES = {"Setup": page_setup, "Profile": page_profile, "Interview": page_interview,
          "Signal Stack": page_stack, "Source Manager": page_sources,

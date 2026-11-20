@@ -42,8 +42,8 @@ def fetch_url(type_: str, target: str, region: str = "US") -> str:
     """The exact URL the crawler will request for a source."""
     if type_ == "news_query":
         cc = region if region in REGIONS else "US"
-        return "https://news.google.com/rss/search?" + urlencode(
-            {"q": target, "hl": f"en-{cc}", "gl": cc, "ceid": f"{cc}:en"})
+        return "https://www.bing.com/news/search?" + urlencode(
+            {"q": target, "format": "rss", "setmkt": f"en-{cc}"})
     if type_ == "hn_query":
         return "https://hn.algolia.com/api/v1/search_by_date?" + urlencode(
             {"query": target, "tags": "story", "hitsPerPage": 20})

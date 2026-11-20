@@ -31,3 +31,12 @@ def test_page_diff_ignores_volatile_lines():
     added, removed = page_diff(old, new)
     assert added == ["Standard plan: Rs 599 per month"]
     assert removed == ["Standard plan: Rs 499 per month"]
+
+def test_bing_redirect_links_are_unwrapped():
+    xml = ('<?xml version="1.0"?><rss version="2.0"><channel><title>Bing</title><item>'
+           '<title>Big news</title><link>https://www.bing.com/news/apiclick.aspx?ref=FexRss'
+           '&amp;url=https%3a%2f%2fpub.test%2fstory%3fid%3d1&amp;c=1</link>'
+           '</item></channel></rss>')
+    it = parse_feed(xml, news=True)[0]
+    assert it["url"] == "https://pub.test/story?id=1" and it["publisher"] == "pub.test"
+

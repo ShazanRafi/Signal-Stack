@@ -40,7 +40,7 @@ PAGES = {
 
 
 def handler(url):
-    if url.startswith("https://news.google.com/rss/search"):
+    if url.startswith("https://www.bing.com/news/search"):
         return PAGES_OK(url, rss([1, 2, 3, 4, 5]), "application/xml")
     if url.startswith("https://hn.algolia.com/"):
         hits = [] if "emptyquery" in url else [{"created_at_i": 1700000000}]

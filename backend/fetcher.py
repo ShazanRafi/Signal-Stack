@@ -9,14 +9,14 @@ from protego import Protego
 
 from backend import config
 
-# Name that robots.txt rules are matched against. Keep USER_AGENT starting with it.
 ROBOTS_AGENT = "SignalStackBot"
 MAX_BYTES = 2_000_000
 MAX_REDIRECTS = 5
-DEFAULT_DELAY = 1.5  # seconds between requests to the same host
+DEFAULT_DELAY = 1.5  
 ALLOWED_TYPES = {
     "text/html", "application/xhtml+xml", "text/plain",
     "application/xml", "text/xml", "application/rss+xml", "application/atom+xml",
+    "application/json",
 }
 
 
@@ -44,14 +44,12 @@ class RobotsPolicy:
 
     @classmethod
     def from_response(cls, status: int | None, text: str) -> "RobotsPolicy":
-        # Unreachable, server error, redirect loop, or access denied to robots.txt itself:
-        # be conservative and do not crawl.
         if status is None or status >= 500 or status in (401, 403) or 300 <= status < 400:
             return cls(None, allow_all=False)
         if 200 <= status < 300:
             rules = Protego.parse(text)
             return cls(rules, allow_all=False, delay=rules.crawl_delay(ROBOTS_AGENT))
-        return cls(None, allow_all=True)  # 404 etc: the site publishes no rules
+        return cls(None, allow_all=True)  
 
     def allowed(self, url: str) -> bool:
         if self._rules is None:
@@ -68,7 +66,7 @@ class PoliteFetcher:
                 "Accept-Language": "en",
             },
             timeout=httpx.Timeout(15.0),
-            follow_redirects=False,  # we follow manually so robots.txt is checked at every hop
+            follow_redirects=False, 
         )
         self.default_delay = default_delay
         self._robots: dict[str, RobotsPolicy] = {}

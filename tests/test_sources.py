@@ -45,8 +45,8 @@ def test_dedupe_key_normalises_queries():
 
 
 def test_fetch_url_region_and_defaults():
-    assert "ceid=IN%3Aen" in S.fetch_url("news_query", "x", "IN")
-    assert "ceid=US%3Aen" in S.fetch_url("news_query", "x", "ZZ")
+    assert "setmkt=en-IN" in S.fetch_url("news_query", "x", "IN")
+    assert "setmkt=en-US" in S.fetch_url("news_query", "x", "ZZ")
     assert S.fetch_url("hn_query", "x").startswith("https://hn.algolia.com/api/v1/search_by_date")
 
 

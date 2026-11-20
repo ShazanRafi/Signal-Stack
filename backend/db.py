@@ -339,6 +339,18 @@ CREATE TABLE IF NOT EXISTS upload_findings (
     record_id INTEGER REFERENCES records(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS context_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'running',   -- running | ready | applied | failed
+    changes_json TEXT NOT NULL,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    markdown TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    applied_at TEXT NOT NULL DEFAULT ''
+);
 """
 
 

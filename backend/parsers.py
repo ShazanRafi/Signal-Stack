@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
 
 import feedparser
 from bs4 import BeautifulSoup
@@ -39,6 +40,14 @@ def _published(entry, now: datetime) -> str:
         return ""
     return dt.isoformat()
 
+def _unwrap_bing(link: str) -> str:
+    """Bing news links are redirects; the real publisher URL sits in the url= parameter."""
+    p = urlparse(link)
+    if p.netloc.endswith("bing.com") and p.path.startswith("/news/apiclick"):
+        real = parse_qs(p.query).get("url", [""])[0]
+        if real.startswith(("http://", "https://")):
+            return real
+    return link
 
 def parse_feed(text: str, news: bool = False, now: datetime | None = None) -> list[dict]:
     now = now or datetime.now(timezone.utc)
@@ -48,11 +57,17 @@ def parse_feed(text: str, news: bool = False, now: datetime | None = None) -> li
     for e in feed.entries[:MAX_ITEMS_PER_FEED]:
         title = strip_html(e.get("title", ""))
         link = (e.get("link") or "").strip()
+        if news:
+            link = _unwrap_bing(link)
         if not title or not link:
             continue
-        publisher = ((e.get("source") or {}).get("title") or "").strip() if news else feed_title
-        if publisher and title.endswith(" - " + publisher):   
-            title = title[: -len(publisher) - 3].strip()
+        if news:
+            publisher = (((e.get("source") or {}).get("title") or "")
+                         or str(e.get("news_source") or "")).strip()
+            if not publisher:
+                publisher = urlparse(link).netloc.removeprefix("www.")
+        else:
+            publisher = feed_title
         raw = e["content"][0].get("value", "") if e.get("content") else ""
         body = strip_html(raw or e.get("summary", "") or e.get("description", ""))
         echo = normalize(body).startswith(normalize(title)) and len(body) < len(title) + 40
@@ -100,7 +115,6 @@ def _keep(line: str) -> bool:
 
 
 def page_diff(old: str, new: str) -> tuple[list[str], list[str]]:
-    """Lines added to / removed from a page, ignoring dates, times and copyright noise."""
     old_l = [l.strip() for l in old.splitlines() if l.strip()]
     new_l = [l.strip() for l in new.splitlines() if l.strip()]
     old_s, new_s = set(old_l), set(new_l)
