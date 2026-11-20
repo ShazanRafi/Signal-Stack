@@ -189,6 +189,35 @@ CREATE TABLE IF NOT EXISTS page_snapshots (
     text TEXT NOT NULL,
     fetched_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    record_id INTEGER NOT NULL UNIQUE REFERENCES records(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,                 -- filtered | not_relevant | analyzed
+    note TEXT NOT NULL DEFAULT '',
+    what_happened TEXT NOT NULL DEFAULT '',
+    affected_area TEXT NOT NULL DEFAULT '',
+    classification TEXT NOT NULL DEFAULT 'neutral',   -- opportunity | threat | neutral
+    urgency TEXT NOT NULL DEFAULT 'low',              -- high | medium | low
+    impact INTEGER NOT NULL DEFAULT 1,                -- AI judgement, 1-5
+    relevance INTEGER NOT NULL DEFAULT 1,             -- AI judgement, 1-5
+    why_it_matters TEXT NOT NULL DEFAULT '',          -- interpretation
+    suggested_action TEXT NOT NULL DEFAULT '',        -- interpretation
+    evidence_snippet TEXT NOT NULL DEFAULT '',
+    evidence_verified INTEGER NOT NULL DEFAULT 0,
+    customer_quote TEXT NOT NULL DEFAULT '',
+    theme TEXT NOT NULL DEFAULT '',
+    verification TEXT NOT NULL DEFAULT 'unverified',  -- verified | reported | unverified
+    reliability REAL NOT NULL DEFAULT 0,
+    evidence_strength REAL NOT NULL DEFAULT 0,
+    recency REAL NOT NULL DEFAULT 0,
+    novelty REAL NOT NULL DEFAULT 0,
+    priority REAL NOT NULL DEFAULT 0,
+    breakdown TEXT NOT NULL DEFAULT '{}',
+    explanation TEXT NOT NULL DEFAULT '',
+    analyzed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

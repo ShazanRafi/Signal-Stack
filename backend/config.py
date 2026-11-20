@@ -14,3 +14,8 @@ DB_PATH = Path(os.getenv("DB_PATH", ROOT / "data" / "signalstack.db"))
 USER_AGENT = os.getenv(
     "USER_AGENT", "SignalStackBot/0.1 (student project; contact: your-email@example.com)"
 )
+PRIORITY_WEIGHTS = {
+    "relevance": 0.25, "impact": 0.20, "urgency": 0.15, "reliability": 0.10,
+    "evidence": 0.10, "recency": 0.10, "novelty": 0.10,
+}
+RECENCY_HALF_LIFE_DAYS = 14
