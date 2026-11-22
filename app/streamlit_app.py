@@ -436,8 +436,20 @@ st.sidebar.title("Signal Stack")
 cos = company_list()
 cid = None
 if cos:
-    pick = st.sidebar.selectbox("Company", cos, format_func=lambda c: f"{c['name']} [{c['status']}]")
-    cid = pick["id"]
+    companies_by_id = {company["id"]: company for company in cos}
+    company_ids = list(companies_by_id)
+    selected_id = st.session_state.get("selected_company_id")
+    default_index = company_ids.index(selected_id) if selected_id in companies_by_id else 0
+    cid = st.sidebar.selectbox(
+        "Company",
+        company_ids,
+        index=default_index,
+        format_func=lambda company_id: (
+            f"{companies_by_id[company_id]['name']} "
+            f"[{companies_by_id[company_id]['status']}]"
+        ),
+        key="selected_company_id",
+    )
 page = st.sidebar.radio("Page", list(PAGES))
 if cid is None and page != "Setup":
     st.info("Add a company on the Setup page first.")

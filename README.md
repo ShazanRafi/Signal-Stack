@@ -25,6 +25,25 @@ See [docs/TECHNICAL_OVERVIEW.md](docs/TECHNICAL_OVERVIEW.md) for the architectur
 [docs/COSTS_AND_LIMITATIONS.md](docs/COSTS_AND_LIMITATIONS.md) for costs, privacy, and
 operational limits.
 
+## Live demo
+
+[Open the deployed Signal-Stack app](https://signal-stack-j2gj.onrender.com/).
+
+The deployed app is started on Render with:
+
+```bash
+streamlit run app/streamlit_app.py \
+  --server.address 0.0.0.0 \
+  --server.port $PORT \
+  --server.headless true
+```
+
+**Deployment limitation:** the free Render plan does not provide the persistent disk this
+app needs to keep its SQLite database across restarts or redeploys. The link is live for
+evaluation, but company profiles, interviews, crawls, and briefs saved there may be lost.
+Render persistent disks require a paid plan. This deployment limitation is why the live app
+cannot guarantee retained demo data; see [Deployment notes](#deployment-notes) below.
+
 ## Requirements
 
 - Python 3.11 or newer
@@ -74,20 +93,41 @@ manually from the dashboard.
 
 ## Deployment notes
 
-The assignment prefers a deployed URL but accepts a documented local setup when deployment
-is not feasible. This project is an assessment/demo application, not a production
-multi-user service.
+The live demo is deployed on Render at
+[signal-stack-j2gj.onrender.com](https://signal-stack-j2gj.onrender.com/). To deploy your
+own instance, connect this repository to Render as a **Web Service**, leave the root
+directory blank, and use:
 
-For a hosted demonstration:
+- **Build command:** `pip install -r requirements.txt`
+- **Start command (dashboard only):**
+  ```bash
+  streamlit run app/streamlit_app.py \
+    --server.address 0.0.0.0 \
+    --server.port $PORT \
+    --server.headless true
+  ```
+- **Start command (dashboard plus scheduler worker):**
+  ```bash
+  bash -c 'python scripts/worker.py & exec streamlit run app/streamlit_app.py --server.address 0.0.0.0 --server.port "$PORT" --server.headless true'
+  ```
 
-- Configure `GEMINI_API_KEY` through the host's secret manager; do not upload `.env`.
-- Give `DB_PATH` writable persistent storage if company data and reports must survive
-  restarts. A fresh deployment starts with an empty database because `data/` is Git-ignored.
-- Run `scripts/worker.py` as a separate long-running process if scheduled jobs must execute.
-- Restrict access to the evaluation team. The app has no authentication or access-control
-  layer and should not be exposed as an unrestricted public service.
-- Verify the hosted database, worker heartbeat, source access, and generated reports before
-  sharing the URL. Hosting storage and free-tier API limits vary by provider.
+Set `GEMINI_API_KEY` in Render's environment settings. Do not upload `.env` or commit API
+keys. The app creates its SQLite database at `data/signalstack.db` by default.
+
+### Render storage limitation
+
+Render's default filesystem is ephemeral. **Without a persistent disk, the SQLite database
+and uploaded files may be lost when the service restarts or redeploys.** The app currently
+uses SQLite and does not migrate its data to another database automatically. Render
+persistent disks require a paid plan. If using one, attach it at `/var/data` and set
+`DB_PATH=/var/data/signalstack.db`; otherwise, treat hosted data as temporary and do not
+rely on it being available after a restart. The scheduler worker also needs to keep running;
+the combined start command above runs it alongside Streamlit in the same service.
+
+The app has no authentication or access-control layer. Restrict access where possible and
+do not enter confidential company or interview information on a publicly accessible
+instance. Before sharing a deployment, check the worker status, source access, collected
+evidence, and generated reports.
 
 ## Recommended company workflow
 
