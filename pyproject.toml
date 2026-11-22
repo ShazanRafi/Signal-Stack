@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "signal-stack"
+version = "0.1.0"
+description = "AI-powered company intelligence and market signal monitoring"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4==4.15.0",
+    "feedparser==6.0.14",
+    "google-genai==3.6.1",
+    "httpx==0.28.1",
+    "Markdown==3.11.3",
+    "openpyxl==3.1.5",
+    "protego==0.7.0",
+    "pydantic==2.14.4",
+    "pypdf==7.1.1",
+    "python-dotenv==1.2.4",
+    "streamlit==1.67.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.2.0"]
+
+[project.scripts]
+signalstack-analyze = "signalstack.cli.analyze:main"
+signalstack-brief = "signalstack.cli.brief:main"
+signalstack-compare = "signalstack.cli.compare:main"
+signalstack-crawl = "signalstack.cli.crawl:main"
+signalstack-db = "signalstack.cli.dbq:main"
+signalstack-fetch = "signalstack.cli.fetch:main"
+signalstack-interview = "signalstack.cli.interview:main"
+signalstack-reassess = "signalstack.cli.reassess:main"
+signalstack-research = "signalstack.cli.research:main"
+signalstack-scheduler = "signalstack.cli.scheduler:main"
+signalstack-stack = "signalstack.cli.stack:main"
+signalstack-upload = "signalstack.cli.upload:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
