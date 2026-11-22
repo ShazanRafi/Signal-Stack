@@ -1,13 +1,13 @@
 # Technical Overview
 
-Signal-Stack is a Python application organized into UI/CLI, service, domain, and
+Signal-Stack is a Python application organized into UI, service, domain, and
 infrastructure layers. It runs locally on Streamlit and SQLite. This document describes
 the current implementation, not a production hosting or security certification.
 
 ## Architecture and data flow
 
 ```text
-Streamlit UI / installed CLI commands / scheduler worker
+Streamlit UI / scheduler worker
                          |
             services and domain workflows
                          |
@@ -18,13 +18,12 @@ Streamlit UI / installed CLI commands / scheduler worker
 
 - **UI:** `app/streamlit_app.py` exposes setup, profile, interview, stack, source manager,
   feed, brief, settings, and context-reassessment screens.
-- **CLI:** `src/signalstack/cli/` contains commands registered in `pyproject.toml`.
 - **Services:** `src/signalstack/services/` coordinates multi-step research, crawling,
   analysis, feed queries, audits, and jobs.
 - **Domain:** `src/signalstack/domain/` contains business rules for interviews, source
   stacks, ranking, brief quality checks, schedules, reassessment, and uploads.
 - **Infrastructure:** `src/signalstack/infrastructure/` contains configuration, SQLite,
-  HTTP fetching, extraction, parsers, source validation, and Gemini integration.
+  HTTP fetching, extraction, parsers, source validation, and the LangChain Gemini adapter.
 
 The main pipeline is:
 
@@ -32,7 +31,9 @@ The main pipeline is:
 2. Gemini returns a schema-validated profile; `services/research.py` checks proposed
    evidence quotes against fetched page text and downgrades unsupported facts.
 3. `domain/interview.py` asks one company-specific question at a time across ten core
-   topics. It stores answers before processing, enabling retry after an AI failure.
+   topics. A LangGraph turn graph prepares context, analyzes the saved answer, routes to
+   a follow-up or next topic, and persists the result. Answers are saved before graph
+   processing, enabling retry after an AI failure.
 4. `domain/stack.py` asks Gemini for competitors and customer/market source ideas, adds
    sources derived from competitor sites, validates them, and stores them as proposed.
    The internal category creates upload slots; it does not crawl private files.
@@ -42,8 +43,16 @@ The main pipeline is:
    scores analysed signals and stores a factor breakdown and explanation.
 7. `domain/brief.py` selects evidence-linked signals, asks Gemini for a structured
    narrative, validates references and unsupported numbers, and saves Markdown and actions.
-8. The scheduler calls monitor, weekly pipeline, or monthly audit jobs and stores run
-   status, errors, and a worker heartbeat.
+8. LangGraph routes scheduled monitor, weekly-brief, and monthly-audit jobs. Monitor and
+   weekly jobs pass through crawl and analysis nodes, with brief generation conditional
+   on job type; the audit route delegates to the deterministic source-audit service.
+   The scheduler stores run status, errors, and a worker heartbeat.
+
+`infrastructure/llm.py` uses LangChain's `ChatGoogleGenerativeAI` with Pydantic structured
+outputs. The existing SQLite response cache, rate limiter, retry policy, and call logs
+remain in the adapter layer. LangGraph orchestrates interview turns and scheduled jobs;
+the SQLite database remains the source of truth for user-visible state between graph
+invocations.
 
 ## Persistence
 

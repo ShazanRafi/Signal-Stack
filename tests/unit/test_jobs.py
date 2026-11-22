@@ -89,3 +89,24 @@ def test_monitor_never_makes_a_brief_and_fails_when_crawl_fails(monkeypatch):
     assert out.status == "failed" and st["brief"]["calls"] == 0
     out, st = run(monkeypatch, "run_monitor")
     assert out.status == "ok" and st["brief"]["calls"] == 0
+
+
+def test_monthly_audit_routes_through_graph(monkeypatch):
+    from signalstack.services import audit
+
+    expected = jobs.JobOutcome("ok", {"audit": True})
+    calls = {}
+
+    def fake_audit(company_id, **kwargs):
+        calls["company_id"] = company_id
+        calls.update(kwargs)
+        return expected
+
+    monkeypatch.setattr(audit, "run_monthly_audit", fake_audit)
+
+    result = jobs.run_monthly_audit(7, triggered_by="scheduled", discover=False)
+
+    assert result is expected
+    assert calls["company_id"] == 7
+    assert calls["triggered_by"] == "scheduled"
+    assert calls["discover"] is False

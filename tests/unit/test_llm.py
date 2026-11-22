@@ -1,5 +1,6 @@
 import pytest
-from google.genai import errors
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai.chat_models import GoogleAPIError, GoogleRateLimitError
 from pydantic import BaseModel
 
 from signalstack.infrastructure import db
@@ -11,27 +12,35 @@ class Pet(BaseModel):
     age: int
 
 
-class FakeResp:
-    def __init__(self, text):
-        self.text = text
-
-
-class FakeClient:
+class FakeRunnable:
     def __init__(self, outcomes):
         self.outcomes = list(outcomes)
         self.calls = 0
-        self.models = self
 
-    def generate_content(self, **kwargs):
+    def invoke(self, messages):
         self.calls += 1
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
-        return FakeResp(outcome)
+        return outcome
+
+    def __call__(self, messages):
+        return self.invoke(messages)
+
+
+class FakeModel:
+    def __init__(self, outcomes):
+        self.runnable = FakeRunnable(outcomes)
+
+    def with_structured_output(self, schema, method):
+        assert method == "json_schema"
+        return self.runnable
 
 
 def api_error(code):
-    return errors.APIError(code, {"error": {"message": "test", "status": "TEST"}})
+    if code == 429:
+        return GoogleRateLimitError("quota test")
+    return GoogleAPIError(code=code, response_json={"error": "test"}, response=None)
 
 
 @pytest.fixture
@@ -47,33 +56,45 @@ def setup(tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "_limiter", NoLimit())
 
     def install(outcomes):
-        fake = FakeClient(outcomes)
-        monkeypatch.setattr(llm, "_get_client", lambda: fake)
-        return fake
+        fake = FakeModel(outcomes)
+        monkeypatch.setattr(llm, "_get_model", lambda temperature: fake)
+        return fake.runnable
 
     return install
 
 
 def test_valid_response_then_cache_hit(setup):
-    fake = setup(['{"name": "Rex", "age": 3}'])
+    fake = setup([{"name": "Rex", "age": 3}])
     a = llm.generate_structured("pet?", Pet)
     b = llm.generate_structured("pet?", Pet)
     assert a == b == Pet(name="Rex", age=3)
     assert fake.calls == 1 
 
 
-def test_invalid_json_is_retried(setup):
-    fake = setup(["not json", '{"name": "Rex"}', '{"name": "Rex", "age": 3}'])
+def test_langchain_gemini_model_accepts_structured_schema(monkeypatch):
+    monkeypatch.setattr(llm.config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(llm, "_models", {})
+
+    model = llm._get_model(0.2)
+    structured = model.with_structured_output(Pet, method="json_schema")
+
+    assert isinstance(model, ChatGoogleGenerativeAI)
+    assert model.max_retries == 0
+    assert structured is not None
+
+
+def test_invalid_structured_output_is_retried(setup):
+    fake = setup([{"name": "Rex"}, {"name": "Rex"}, {"name": "Rex", "age": 3}])
     out = llm.generate_structured("pet?", Pet)
     assert out.age == 3
     assert fake.calls == 3
 
 
 def test_failed_attempts_are_not_cached(setup):
-    setup(["bad"] * (llm.config.LLM_MAX_RETRIES + 1))
+    setup([{"name": "Rex"}] * (llm.config.LLM_MAX_RETRIES + 1))
     with pytest.raises(llm.LLMError):
         llm.generate_structured("pet?", Pet)
-    fake = setup(['{"name": "Rex", "age": 3}'])
+    fake = setup([{"name": "Rex", "age": 3}])
     assert llm.generate_structured("pet?", Pet).name == "Rex"
     assert fake.calls == 1
 

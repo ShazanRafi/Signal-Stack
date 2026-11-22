@@ -18,6 +18,8 @@ developments, and produces an evidence-linked Monday Morning Brief.
 - Generates a cited Markdown brief, tracks actions, and exports an email-ready HTML copy.
 - Schedules monitoring, weekly briefs, and monthly source-health audits using a local
   worker process.
+- Uses LangChain's Gemini integration for structured model outputs and LangGraph to
+  route interview turns and orchestrate scheduled monitoring, analysis, audits, and briefs.
 
 See [docs/TECHNICAL_OVERVIEW.md](docs/TECHNICAL_OVERVIEW.md) for the architecture and
 [docs/COSTS_AND_LIMITATIONS.md](docs/COSTS_AND_LIMITATIONS.md) for costs, privacy, and
@@ -106,26 +108,19 @@ For a hosted demonstration:
 An empty or zero-signal brief is a truthful status report, not a completed intelligence
 demonstration. Do not add fabricated records to meet sample-count targets.
 
-## Command-line examples
+## Background worker
 
-After installation, commands are available as `signalstack-*` entry points:
+The Streamlit dashboard handles company research, interviews, source approval, monitoring,
+analysis, and briefs. A separate worker process is needed only for scheduled monitoring,
+weekly briefs, and monthly audits:
 
 ```powershell
-signalstack-research "MeetUniversity" "https://www.meetuniversity.com/"
-signalstack-interview COMPANY_ID
-signalstack-stack build COMPANY_ID
-signalstack-stack approve-all COMPANY_ID
-signalstack-crawl run COMPANY_ID
-signalstack-analyze run COMPANY_ID
-signalstack-brief generate COMPANY_ID 7
-signalstack-brief list COMPANY_ID
-signalstack-brief export BRIEF_ID "sample_reports\meetuniversity.md"
-signalstack-scheduler overview
+.\.venv\Scripts\python.exe scripts\worker.py
 ```
 
-Replace uppercase placeholders with IDs from the application/database. Use each command
-without arguments for its usage text. The command-line and Streamlit interfaces call the
-same underlying services and domain logic.
+Keep the worker running in a second terminal. Its heartbeat and scheduled-run history are
+visible under **Settings & Health**. Manual crawl and brief runs are available in the
+dashboard without the worker.
 
 ## Configuration
 
@@ -190,32 +185,93 @@ met. Before submitting, use the live application and include reproducible eviden
 - A 5–10-minute screen recording showing the end-to-end workflow from company setup to the
   final brief. A deployed URL is preferred but optional when local setup is documented.
 
-Create reports from the database after collecting real data. For example:
-
-```powershell
-signalstack-brief list COMPANY_ID
-signalstack-brief export BRIEF_ID "sample_reports\company-name.md"
-```
-
-Review exported reports for evidence links and sensitive founder-entered information before
-committing them. The default `data/` directory and its database are ignored by Git, so a
-fresh clone starts without your local demonstration data.
+Download reports from **Monday Brief** after reviewing their source links, evidence, and
+sensitive founder-entered information. The default `data/` directory and its database are
+ignored by Git, so a fresh clone starts without your local demonstration data.
 
 ## Repository layout
 
 ```text
-app/                         Streamlit user interface
-src/signalstack/cli/          Installed command-line entry points
-src/signalstack/domain/        Business rules and structured workflows
-src/signalstack/services/      Research, crawling, analysis, jobs, and scheduling
-src/signalstack/infrastructure/ SQLite, HTTP, parsing, source adapters, and Gemini client
-scripts/                      Scheduler worker and diagnostics
-tests/unit/                   Unit tests
-migrations/                   Database schema-change guidance
-sample_reports/               User-reviewed Markdown report exports
-data/                         Local SQLite database and uploaded files (ignored)
-docs/                         Technical overview and cost/limitations statement
+Signal-Stack/
+├── app/
+│   └── streamlit_app.py
+├── data/                         Local database and uploads (Git-ignored)
+├── docs/
+│   ├── COSTS_AND_LIMITATIONS.md
+│   └── TECHNICAL_OVERVIEW.md
+├── migrations/
+│   └── README.md
+├── sample_reports/
+│   ├── meetuniversity-public-brief-20261122.md
+│   ├── razorpay-public-source-data-only-20261121.md
+│   └── youtube-public-source-data-only-20261121.md
+├── scripts/
+│   ├── demo_readiness.py
+│   └── worker.py
+├── src/signalstack/
+│   ├── __init__.py
+│   ├── domain/
+│   │   ├── __init__.py
+│   │   ├── brief.py
+│   │   ├── brief_check.py
+│   │   ├── interview.py
+│   │   ├── ranker.py
+│   │   ├── reassess.py
+│   │   ├── schedule.py
+│   │   ├── stack.py
+│   │   ├── uploads.py
+│   │   └── verify.py
+│   ├── infrastructure/
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── db.py
+│   │   ├── extract.py
+│   │   ├── fetcher.py
+│   │   ├── llm.py
+│   │   ├── parsers.py
+│   │   └── sources.py
+│   └── services/
+│       ├── __init__.py
+│       ├── analyzer.py
+│       ├── audit.py
+│       ├── crawler.py
+│       ├── feed.py
+│       ├── internal.py
+│       ├── jobs.py
+│       ├── research.py
+│       └── scheduler.py
+├── tests/unit/
+│   ├── test_analyzer.py
+│   ├── test_audit.py
+│   ├── test_brief.py
+│   ├── test_brief_check.py
+│   ├── test_crawler.py
+│   ├── test_extract.py
+│   ├── test_feed.py
+│   ├── test_fetcher.py
+│   ├── test_internal.py
+│   ├── test_interview.py
+│   ├── test_jobs.py
+│   ├── test_llm.py
+│   ├── test_parsers.py
+│   ├── test_reassess.py
+│   ├── test_research.py
+│   ├── test_schedule.py
+│   ├── test_scheduler.py
+│   ├── test_sources.py
+│   ├── test_stack.py
+│   ├── test_uploads.py
+│   └── test_verify.py
+├── .env                         Local secrets; Git-ignored
+├── .env.example
+├── .gitignore
+├── pyproject.toml
+├── pytest.ini
+├── README.md
+└── requirements.txt
 ```
+
+The local `.venv/` environment is intentionally excluded from this source tree.
 
 ## Important limitations
 

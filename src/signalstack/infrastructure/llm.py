@@ -2,10 +2,15 @@ import hashlib
 import json
 import threading
 import time
-from typing import Type, TypeVar
+from typing import TypeVar
 
-from google import genai
-from google.genai import errors, types
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai.chat_models import (
+    GoogleAPIError,
+    GoogleGenerativeAIError,
+    GoogleRateLimitError,
+)
 from pydantic import BaseModel
 
 from signalstack.infrastructure import config
@@ -40,19 +45,31 @@ class _RateLimiter:
 
 
 _limiter = _RateLimiter(config.LLM_MAX_RPM)
-_client = None
+_models: dict[float, ChatGoogleGenerativeAI] = {}
+_model_lock = threading.Lock()
 
 
-def _get_client():
-    global _client
-    if _client is None:
-        if not config.GEMINI_API_KEY:
-            raise LLMError("No API key found. Set GEMINI_API_KEY (or GOOGLE_API_KEY) in .env")
-        _client = genai.Client(api_key=config.GEMINI_API_KEY)
-    return _client
+def _get_model(temperature: float) -> ChatGoogleGenerativeAI:
+    if not config.GEMINI_API_KEY:
+        raise LLMError("No API key found. Set GEMINI_API_KEY (or GOOGLE_API_KEY) in .env")
+    with _model_lock:
+        if temperature not in _models:
+            _models[temperature] = ChatGoogleGenerativeAI(
+                model=config.GEMINI_MODEL,
+                api_key=config.GEMINI_API_KEY,
+                temperature=temperature,
+                retries=0,
+                cache=False,
+            )
+        return _models[temperature]
 
 
-def _cache_key(prompt: str, schema: Type[BaseModel], system: str | None, temperature: float) -> str:
+def _cache_key(
+    prompt: str,
+    schema: type[BaseModel],
+    system: str | None,
+    temperature: float,
+) -> str:
     payload = json.dumps(
         {
             "model": config.GEMINI_MODEL,
@@ -92,7 +109,7 @@ def _log(purpose: str, cached: bool, ok: bool, error: str = "") -> None:
 
 def generate_structured(
     prompt: str,
-    schema: Type[T],
+    schema: type[T],
     *,
     system: str | None = None,
     temperature: float = 0.2,
@@ -122,28 +139,37 @@ def generate_structured(
     for attempt in range(config.LLM_MAX_RETRIES + 1):
         _limiter.wait()
         try:
-            resp = _get_client().models.generate_content(
-                model=config.GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system,
-                    temperature=temperature,
-                    response_mime_type="application/json",
-                    response_schema=schema,
-                ),
-            )
-            text = resp.text
-            if not text:
+            prompt_messages = [("human", "{prompt}")]
+            if system:
+                prompt_messages.insert(0, ("system", system))
+            prompt_template = ChatPromptTemplate.from_messages(prompt_messages)
+            chain = prompt_template | _get_model(temperature).with_structured_output(
+                schema, method="json_schema")
+            result = chain.invoke({"prompt": prompt})
+            if result is None:
                 raise ValueError("empty response (possibly blocked by safety filters)")
-            obj = schema.model_validate_json(text)  
-        except errors.APIError as e:
-            last_error = f"APIError {e.code}: {e.message}"
-            last_code = e.code
+            obj = schema.model_validate(result)
+        except GoogleRateLimitError as e:
+            last_error = str(e)
+            last_code = 429
             _log(purpose, cached=False, ok=False, error=last_error)
-            if e.code not in RETRYABLE_CODES:
+            if last_code not in RETRYABLE_CODES:
                 raise LLMError(last_error) from e
             time.sleep(min(2 ** attempt * 2, 30))
             continue
+        except GoogleAPIError as e:
+            last_code = getattr(e, "code", None)
+            last_error = f"APIError {last_code}: {e}"
+            _log(purpose, cached=False, ok=False, error=last_error)
+            if last_code not in RETRYABLE_CODES:
+                raise LLMError(last_error) from e
+            time.sleep(min(2 ** attempt * 2, 30))
+            continue
+        except GoogleGenerativeAIError as e:
+            last_error = str(e)
+            last_code = None
+            _log(purpose, cached=False, ok=False, error=last_error)
+            raise LLMError(last_error) from e
         except ValueError as e:
             last_error = f"Invalid model output: {e}"
             last_code = None

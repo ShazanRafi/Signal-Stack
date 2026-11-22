@@ -1,5 +1,7 @@
 import difflib
+from typing import Callable, TypedDict
 
+from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel
 
 from signalstack.infrastructure.db import connect, init_db
@@ -46,6 +48,24 @@ class StepResult(BaseModel):
     followup_question: str
     next_topic: str
     next_question: str
+
+
+class InterviewTurnState(TypedDict, total=False):
+    company_id: int
+    turn_id: int
+    llm_fn: Callable
+    turns: list[dict]
+    context: str
+    turn: dict
+    existing: str
+    remaining: list[str]
+    skipped: bool
+    can_followup: bool
+    asked: list[str]
+    prompt: str
+    result: StepResult
+    new_turn: tuple[str, str, int] | None
+    processed: bool
 
 
 SYSTEM = """You are a senior strategy consultant interviewing a founder to configure a \
@@ -249,10 +269,11 @@ def edit_profile_entry(company_id: int, topic: str, content: str) -> None:
             (company_id, topic, content))
 
 
-def _process(cid: int, turn_id: int, llm_fn) -> None:
+def _prepare_turn(state: InterviewTurnState) -> dict:
+    cid, turn_id = state["company_id"], state["turn_id"]
     with connect() as conn:
         turns = _load_turns(conn, cid)
-        ctx = _context(conn, cid)
+        context = _context(conn, cid)
         turn = next(t for t in turns if t["id"] == turn_id)
         row = conn.execute("SELECT content FROM profile_entries WHERE company_id = ? "
                            "AND topic = ?", (cid, turn["topic"])).fetchone()
@@ -274,37 +295,72 @@ def _process(cid: int, turn_id: int, llm_fn) -> None:
     next_rule = (f"Remaining topics (choose next_topic from exactly these keys):\n"
                  f"{_topic_lines(remaining)}" if remaining else
                  "No topics remain: set next_topic and next_question to ''.")
-    prompt = (f"{ctx}\n\nInterview so far:\n{_history(turns)}\n\n"
+    prompt = (f"{context}\n\nInterview so far:\n{_history(turns)}\n\n"
               f"Latest turn: Q{turn['seq']} on topic '{turn['topic']}'. {event}\n"
               f"Existing profile note for this topic: {existing or '(none)'}\n\n"
               f"{followup_rule}\n{next_rule}\n"
               "Write next_question for the chosen next_topic, specific to this company "
               "and informed by everything the founder has said.")
+    return {
+        "turns": turns,
+        "context": context,
+        "turn": turn,
+        "existing": existing,
+        "remaining": remaining,
+        "skipped": skipped,
+        "can_followup": can_followup,
+        "asked": [t["question"] for t in turns],
+        "prompt": prompt,
+    }
 
-    res = llm_fn(prompt, StepResult, system=SYSTEM, temperature=0.4,
-                 purpose="interview_step")
 
-    new_turn = None
-    fq = res.followup_question.strip()
-    if can_followup and res.needs_followup and fq and _is_new(fq, asked):
-        new_turn = (turn["topic"], fq, 1)
-    elif remaining:
-        topic, question = _choose_next(llm_fn, ctx, turns, remaining, asked,
-                                       res.next_topic, res.next_question)
-        new_turn = (topic, question, 0)
+def _analyze_answer(state: InterviewTurnState) -> dict:
+    result = state["llm_fn"](
+        state["prompt"], StepResult, system=SYSTEM, temperature=0.4,
+        purpose="interview_step")
+    return {"result": result}
 
+
+def _route_interview_turn(state: InterviewTurnState) -> str:
+    result = state["result"]
+    followup = result.followup_question.strip()
+    if (state["can_followup"] and result.needs_followup and followup
+            and _is_new(followup, state["asked"])):
+        return "followup"
+    if state["remaining"]:
+        return "next_topic"
+    return "persist"
+
+
+def _make_followup(state: InterviewTurnState) -> dict:
+    return {"new_turn": (state["turn"]["topic"],
+                         state["result"].followup_question.strip(), 1)}
+
+
+def _make_next_topic(state: InterviewTurnState) -> dict:
+    topic, question = _choose_next(
+        state["llm_fn"], state["context"], state["turns"], state["remaining"],
+        state["asked"], state["result"].next_topic, state["result"].next_question)
+    return {"new_turn": (topic, question, 0)}
+
+
+def _persist_interview_turn(state: InterviewTurnState) -> dict:
+    cid, turn_id, turn = state["company_id"], state["turn_id"], state["turn"]
+    turns = state["turns"]
+    result, skipped = state["result"], state["skipped"]
     entities = []
     if not skipped:
         answer_norm = normalize(turn["answer"])
-        for e in res.entities[:MAX_ENTITIES]:
+        for e in result.entities[:MAX_ENTITIES]:
             name = e.name.strip()
             if len(name) >= 2 and normalize(name) in answer_norm:  
                 kind = e.kind.strip().lower()
                 entities.append((name, kind if kind in ENTITY_KINDS else "other"))
 
+    new_turn = state.get("new_turn")
     with connect() as conn:
         if not skipped:
-            content = res.topic_summary.strip()
+            content = result.topic_summary.strip()
             if content:
                 conn.execute(
                     "INSERT INTO profile_entries (company_id, topic, content) VALUES (?, ?, ?) "
@@ -323,3 +379,27 @@ def _process(cid: int, turn_id: int, llm_fn) -> None:
         else:
             conn.execute("UPDATE companies SET status = 'interviewed' WHERE id = ?", (cid,))
         conn.execute("UPDATE interview_turns SET processed = 1 WHERE id = ?", (turn_id,))
+    return {"processed": True}
+
+
+_interview_graph_builder = StateGraph(InterviewTurnState)
+_interview_graph_builder.add_node("prepare", _prepare_turn)
+_interview_graph_builder.add_node("analyze", _analyze_answer)
+_interview_graph_builder.add_node("followup", _make_followup)
+_interview_graph_builder.add_node("next_topic", _make_next_topic)
+_interview_graph_builder.add_node("persist", _persist_interview_turn)
+_interview_graph_builder.add_edge(START, "prepare")
+_interview_graph_builder.add_edge("prepare", "analyze")
+_interview_graph_builder.add_conditional_edges(
+    "analyze",
+    _route_interview_turn,
+    {"followup": "followup", "next_topic": "next_topic", "persist": "persist"},
+)
+_interview_graph_builder.add_edge("followup", "persist")
+_interview_graph_builder.add_edge("next_topic", "persist")
+_interview_graph_builder.add_edge("persist", END)
+_interview_graph = _interview_graph_builder.compile()
+
+
+def _process(cid: int, turn_id: int, llm_fn) -> None:
+    _interview_graph.invoke({"company_id": cid, "turn_id": turn_id, "llm_fn": llm_fn})

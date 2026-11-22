@@ -3,13 +3,13 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from signalstack.infrastructure import config
-from signalstack.services import audit, jobs
+from signalstack.services import jobs
 from signalstack.domain import schedule as T
 from signalstack.infrastructure.db import connect, init_db
 
 JOB_TYPES = ("weekly_brief", "monitor", "monthly_audit")
 JOBS = {"weekly_brief": jobs.run_weekly_pipeline, "monitor": jobs.run_monitor,
-        "monthly_audit": audit.run_monthly_audit}
+        "monthly_audit": jobs.run_monthly_audit}
 
 DEFAULTS = {"timezone": "UTC", "brief_enabled": 1, "brief_weekday": 0, "brief_time": "08:00",
             "brief_days": 7, "monitor_enabled": 1, "crawl_every_hours": 12,
